@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#f5f6fb">
+  <title>Keynest — Your password vault</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/theme.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      color-scheme: light;
+    }
+
+    body {
+      font-family: var(--font-body);
+    }
+
+    .panel {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+    }
+
+    .primary-button {
+      background: var(--color-primary);
+      color: var(--color-primary-contrast);
+      border-radius: var(--radius);
+    }
+
+    .primary-button:hover {
+      filter: brightness(.96);
+    }
+
+    .soft-button {
+      background: var(--color-soft);
+      color: var(--color-primary);
+      border-radius: var(--radius);
+    }
+
+    .field {
+      width: 100%;
+      border: 1px solid var(--color-border);
+      border-radius: 12px;
+      background: var(--color-surface);
+      color: var(--color-text);
+      outline: none;
+      transition: border-color .2s, box-shadow .2s;
+    }
+
+    .field:focus {
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 15%, transparent);
+    }
+
+    .muted {
+      color: var(--color-muted);
+    }
+
+    .entry-row+.entry-row {
+      border-top: 1px solid var(--color-border);
+    }
+
+    .check {
+      accent-color: var(--color-primary);
+    }
+
+    .icon-button {
+      color: var(--color-muted);
+      border-radius: 10px;
+    }
+
+    .icon-button:hover {
+      background: var(--color-soft);
+      color: var(--color-primary);
+    }
+
+    .toast {
+      animation: slide-in .2s ease-out;
+    }
+
+    @keyframes slide-in {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+  </style>
+</head>
+
+<body class="min-h-screen">
+  <div id="app" class="min-h-screen"></div>
+  <div id="toast" class="fixed bottom-5 left-1/2 z-50 hidden -translate-x-1/2 rounded-[var(--radius)] bg-[var(--color-text)] px-5 py-3 text-sm font-semibold text-[var(--color-primary-contrast)] shadow-[0_18px_40px_var(--color-shadow)]"></div>
+
+  <script>
+    const STORAGE_KEY = 'keynest-encrypted-vault-v1';
+    const app = document.getElementById('app');
+    let vaultData = {
+      entries: []
+    };
+    let vaultKey = null;
+    let isUnlocked = false;
+    let searchTerm = '';
+    let revealIds = new Set();
+    let generatedPassword = '';
+
+    const icon = (name, size = 20) => {
+      const paths = {
+        key: '<path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.778-7.778Zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L18 10"/>',
+        lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+        eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
+        copy: '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>',
+        plus: '<path d="M12 5v14m-7-7h14"/>',
+        search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+        spark: '<path d="m12 3 1.9 5.8L20 11l-6.1 2.2L12 19l-2-5.8L4 11l6-2.2L12 3Z"/><path d="m19 14 1.3 2.7L23 18l-2.7 1.3L19 22l-1.3-2.7L15 18l2.7-1.3L19 14Z"/>',
+        trash: '<path d="M3 6h18m-2 0-.9 14H5.9L5 6m4 0V4h6v2m-5 4v6m4-6v6"/>',
+        logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4m7 14 5-5-5-5m5 5H9"/>',
+        shield: '<path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"/><path d="m9 12 2 2 4-4"/>',
+        refresh: '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 9a7 7 0 0 1 11.6-2L20 12M4 12l2.8 5a7 7 0 0 0 11.6-2"/>',
+        close: '<path d="m18 6-12 12M6 6l12 12"/>',
+        globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20m-10-10a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"/>'
+      };
+      return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || ''}</svg>`;
+    };
+
+    function escapeHtml(value = '') {
+      return String(value).replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      } [char]));
+    }
+
+    function toast(message) {
+      const element = document.getElementById('toast');
+      element.textContent = message;
+      element.classList.remove('hidden');
+      element.classList.add('toast');
+      clearTimeout(toast.timer);
+      toast.timer = setTimeout(() => element.classList.add('hidden'), 2600);
+    }
+
+    function bytesToBase64(bytes) {
+      return btoa(String.fromCharCode(...new Uint8Array(bytes)));
+    }
+
+    function base64ToBytes(value) {
+      return Uint8Array.from(atob(value), char => char.charCodeAt(0));
+    }
+
+    async function deriveKey(password, salt) {
+      const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+      return crypto.subtle.deriveKey({
+        name: 'PBKDF2',
+        salt,
+        iterations: 310000,
+        hash: 'SHA-256'
+      }, material, {
+        name: 'AES-GCM',
+        length: 256
+      }, false, ['encrypt', 'decrypt']);
+    }
+
+    async function saveVault() {
+      const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const encrypted = await crypto.subtle.encrypt({
+        name: 'AES-GCM',
+        iv
+      }, vaultKey, new TextEncoder().encode(JSON.stringify(vaultData)));
+      stored.iv = bytesToBase64(iv);
+      stored.data = bytesToBase64(encrypted);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    }
+
+    async function unlockVault(password, create = false) {
+      const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
+      if (create) {
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        vaultKey = await deriveKey(password, salt);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          salt: bytesToBase64(salt),
+          iv: '',
+          data: ''
+        }));
+        vaultData = {
+          entries: []
+        };
+        await saveVault();
+      } else {
+        vaultKey = await deriveKey(password, base64ToBytes(stored.salt));
+        const clear = await crypto.subtle.decrypt({
+          name: 'AES-GCM',
+          iv: base64ToBytes(stored.iv)
+        }, vaultKey, base64ToBytes(stored.data));
+        vaultData = JSON.parse(new TextDecoder().decode(clear));
+      }
+      isUnlocked = true;
+      renderVault();
+    }
+
+    function renderGate() {
+      const hasVault = Boolean(localStorage.getItem(STORAGE_KEY));
+      app.innerHTML = `
+        <main class="mx-auto flex min-h-screen max-w-6xl items-center justify-center px-5 py-12">
+          <div class="grid w-full overflow-hidden rounded-[calc(var(--radius)*1.5)] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_28px_90px_var(--color-shadow)] md:grid-cols-[1fr_1fr]">
+            <section class="relative flex min-h-[310px] flex-col justify-between overflow-hidden bg-[var(--color-primary)] p-8 text-[var(--color-primary-contrast)] md:min-h-[620px] md:p-12">
+              <div class="absolute -right-20 -top-20 h-64 w-64 rounded-[var(--radius-pill)] border border-[var(--color-primary-line)]"></div>
+              <div class="absolute -right-6 -top-6 h-36 w-36 rounded-[var(--radius-pill)] border border-[var(--color-primary-line)]"></div>
+              <a href="/" class="relative flex w-fit items-center gap-3 text-lg font-extrabold tracking-tight">${icon('key', 23)} Keynest</a>
+              <div class="relative max-w-md py-10">
+                <div class="mb-6 inline-flex items-center gap-2 rounded-[var(--radius-pill)] border border-[var(--color-primary-line)] bg-[var(--color-primary-tint)] px-3 py-1.5 text-xs font-semibold">${icon('shield', 15)} Your keys, your privacy</div>
+                <h1 class="text-4xl font-extrabold leading-tight tracking-tight md:text-5xl">One safe place for every password.</h1>
+                <p class="mt-5 max-w-sm text-base leading-7 text-[var(--color-primary-soft-text)]">Keep your logins organized in a vault only you can unlock.</p>
+              </div>
+              <p class="relative text-xs text-[var(--color-primary-muted-text)]">Private by design · Encrypted on this device</p>
+              <div class="pointer-events-none absolute -bottom-16 -right-12 h-56 w-56 rounded-[var(--radius-pill)] bg-[var(--color-primary-tint)] blur-2xl"></div>
+            </section>
+            <section class="flex items-center justify-center p-6 md:p-12">
+              <div class="w-full max-w-sm">
+                <div class="mb-8 flex h-14 w-14 items-center justify-center rounded-[var(--radius)] bg-[var(--color-soft)] text-[var(--color-primary)]">${icon(hasVault ? 'lock' : 'key', 26)}</div>
+                <p class="mb-2 text-sm font-bold uppercase tracking-[.16em] text-[var(--color-primary)]">${hasVault ? 'Welcome back' : 'Get started'}</p>
+                <h2 class="text-3xl font-extrabold tracking-tight">${hasVault ? 'Unlock your vault' : 'Create your vault'}</h2>
+                <p class="mt-3 text-sm leading-6 muted">${hasVault ? 'Enter your master password to access your saved logins.' : 'Choose a strong master password. It encrypts your vault and cannot be recovered if you forget it.'}</p>
+                <form id="gate-form" class="mt-8 space-y-4">
+                  <label class="block text-sm font-semibold">Master password
+                    <input id="master-password" class="field mt-2 px-4 py-3.5" type="password" autocomplete="${hasVault ? 'current-password' : 'new-password'}" placeholder="${hasVault ? 'Enter your master password' : 'At least 8 characters'}" required minlength="8">
+                  </label>
+                  ${hasVault ? '' : `<label class="block text-sm font-semibold">Confirm master password<input id="confirm-password" class="field mt-2 px-4 py-3.5" type="password" autocomplete="new-password" placeholder="Enter it once more" required minlength="8"></label>`}
+                  <p id="gate-error" class="hidden text-sm font-medium text-[var(--color-danger)]"></p>
+                  <button class="primary-button flex w-full items-center justify-center gap-2 px-5 py-3.5 font-bold" type="submit">${hasVault ? 'Unlock vault' : 'Create secure vault'} <span aria-hidden="true">→</span></button>
+                </form>
+                <div class="mt-6 flex gap-3 rounded-[var(--radius)] bg-[var(--color-bg)] p-4 text-xs leading-5 muted">${icon('shield', 18)}<span>Your passwords are encrypted with AES-GCM and stay in this browser. There is no online account or password recovery.</span></div>
+              </div>
+            </section>
+          </div>
+        </main>`;
+      document.getElementById('gate-form').addEventListener('submit', async event => {
+        event.preventDefault();
+        const password = document.getElementById('master-password').value;
+        const error = document.getElementById('gate-error');
+        error.classList.add('hidden');
+        if (!hasVault && password !== document.getElementById('confirm-password').value) {
+          error.textContent = 'Those passwords do not match.';
+          error.classList.remove('hidden');
+          return;
+        }
+        const button = event.currentTarget.querySelector('button');
+        button.disabled = true;
+        button.textContent = 'Please wait…';
+        try {
+          await unlockVault(password, !hasVault);
+        } catch (err) {
+          vaultKey = null;
+          error.textContent = hasVault ? 'That password did not unlock this vault. Please try again.' : 'This browser could not create the encrypted vault. Try a modern browser on a secure connection.';
+          error.classList.remove('hidden');
+          button.disabled = false;
+          button.textContent = hasVault ? 'Unlock vault →' : 'Create secure vault →';
+        }
+      });
+    }
+
+    function renderVault() {
+      const entries = vaultData.entries.filter(entry => `${entry.name} ${entry.username} ${entry.url || ''}`.toLowerCase().includes(searchTerm.toLowerCase()));
+      app.innerHTML = `
+        <div class="min-h-screen">
+          <header class="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+            <div class="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 md:px-8">
+              <a href="/" class="flex items-center gap-3 text-lg font-extrabold tracking-tight"> <span class="flex h-10 w-10 items-center justify-center rounded-[var(--radius)] bg-[var(--color-primary)] text-[var(--color-primary-contrast)]">${icon('key', 21)}</span> Keynest</a>
+              <div class="flex items-center gap-2"><span class="hidden items-center gap-2 rounded-[var(--radius-pill)] bg-[var(--color-soft)] px-3 py-2 text-xs font-semibold text-[var(--color-primary)] sm:flex">${icon('shield', 15)} Encrypted on this device</span><button id="lock-button" class="icon-button flex items-center gap-2 px-3 py-2 text-sm font-semibold">${icon('logout', 17)}<span class="hidden sm:inline">Lock vault</span></button></div>
+            </div>
+          </header>
+          <main class="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-12">
+            <div class="mb-9 flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
+              <div><p class="mb-2 text-sm font-bold uppercase tracking-[.16em] text-[var(--color-primary)]">Your private space</p><h1 class="text-3xl font-extrabold tracking-tight md:text-4xl">Good to see you.</h1><p class="mt-2 text-sm muted">Your logins, all in one place.</p></div>
+              <button id="add-entry" class="primary-button flex items-center justify-center gap-2 px-5 py-3 font-bold">${icon('plus', 18)} Add a password</button>
+            </div>
+            <div class="grid gap-5 lg:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.8fr)]">
+              <section class="panel overflow-hidden">
+                <div class="flex flex-col gap-4 border-b border-[var(--color-border)] p-5 sm:flex-row sm:items-center sm:justify-between md:p-6">
+                  <div><h2 class="text-lg font-extrabold">Saved logins</h2><p class="mt-1 text-sm muted">${vaultData.entries.length} ${vaultData.entries.length === 1 ? 'account' : 'accounts'} in your vault</p></div>
+                  <label class="relative block sm:w-64"><span class="absolute left-3 top-1/2 -translate-y-1/2 muted">${icon('search', 17)}</span><input id="search-input" value="${escapeHtml(searchTerm)}" class="field py-2.5 pl-10 pr-3 text-sm" type="search" placeholder="Search accounts"></label>
+                </div>
+                <div id="entry-list">${entries.length ? entries.map(entry => entryCard(entry)).join('') : `<div class="px-6 py-16 text-center"><div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-[var(--radius)] bg-[var(--color-soft)] text-[var(--color-primary)]">${icon(vaultData.entries.length ? 'search' : 'key', 24)}</div><h3 class="font-bold">${vaultData.entries.length ? 'No matching logins' : 'Your vault is ready'}</h3><p class="mx-auto mt-2 max-w-xs text-sm leading-6 muted">${vaultData.entries.length ? 'Try a different search.' : 'Add your first account to keep its login safely stored here.'}</p>${vaultData.entries.length ? '' : `<button id="empty-add" class="soft-button mt-5 px-4 py-2.5 text-sm font-bold">Add your first login</button>`}</div>`}</div>
+              </section>
+              <aside class="space-y-5">
+                <section class="panel p-5 md:p-6">
+                  <div class="mb-5 flex items-start justify-between"><div><div class="mb-3 flex h-11 w-11 items-center justify-center rounded-[var(--radius)] bg-[var(--color-soft)] text-[var(--color-primary)]">${icon('spark', 22)}</div><h2 class="text-lg font-extrabold">Password generator</h2><p class="mt-1 text-sm muted">Make a strong, one-of-a-kind password.</p></div></div>
+                  <div class="flex gap-2"><input id="generated-output" class="field min-w-0 px-3 py-3 font-mono text-sm" readonly aria-label="Generated password" placeholder="Your password appears here"><button id="generate-button" class="soft-button shrink-0 px-3" aria-label="Generate password">${icon('refresh', 19)}</button></div>
+                  <div class="mt-5"><div class="mb-2 flex justify-between text-sm"><label for="length-slider" class="font-semibold">Length</label><span id="length-value" class="font-bold text-[var(--color-primary)]">20</span></div><input id="length-slider" class="w-full accent-[var(--color-primary)]" type="range" min="8" max="64" value="20"></div>
+                  <div class="mt-5 grid grid-cols-2 gap-x-3 gap-y-3 text-sm">
+                    <label class="flex items-center gap-2"><input class="check h-4 w-4" type="checkbox" id="use-upper" checked> Uppercase (A–Z)</label>
+                    <label class="flex items-center gap-2"><input class="check h-4 w-4" type="checkbox" id="use-lower" checked> Lowercase (a–z)</label>
+                    <label class="flex items-center gap-2"><input class="check h-4 w-4" type="checkbox" id="use-numbers" checked> Numbers (0–9)</label>
+                    <label class="flex items-center gap-2"><input class="check h-4 w-4" type="checkbox" id="use-symbols" checked> Symbols (!@#)</label>
+                  </div>
+                  <p id="generator-error" class="mt-3 hidden text-xs font-medium text-[var(--color-danger)]">Choose at least one character type.</p>
+                  <div class="mt-5 grid grid-cols-2 gap-2"><button id="copy-generated" class="soft-button flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-bold">${icon('copy', 16)} Copy</button><button id="use-generated" class="primary-button px-3 py-2.5 text-sm font-bold">Use in new login</button></div>
+                </section>
+                <section class="rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-surface)] p-5"><div class="flex gap-3">${icon('shield', 20)}<div><h3 class="text-sm font-bold">A quick security note</h3><p class="mt-1 text-xs leading-5 muted">Your vault is encrypted in this browser. Lock it when you step away, and never forget your master password.</p></div></div></section>
+              </aside>
+            </div>
+            <footer class="py-8 text-center text-xs muted">Passwords stay on this device · Lock your vault when you’re done</footer>
+          </main>
+        </div>
+        <div id="modal-root"></div>`;
+      bindVaultEvents();
+    }
+
+    function entryCard(entry) {
+      const visible = revealIds.has(entry.id);
+      const initials = entry.name.trim().slice(0, 1).toUpperCase() || '?';
+      return `<article class="entry-row flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center md:px-6"><div class="flex min-w-0 flex-1 items-center gap-3"><div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius)] bg-[var(--color-soft)] font-bold text-[var(--color-primary)]">${escapeHtml(initials)}</div><div class="min-w-0"><h3 class="truncate font-bold">${escapeHtml(entry.name)}</h3><p class="mt-1 truncate text-sm muted">${escapeHtml(entry.username || 'No username')}</p>${entry.url ? `<p class="mt-1 flex items-center gap-1 truncate text-xs muted">${icon('globe', 12)} ${escapeHtml(entry.url)}</p>` : ''}</div></div><div class="flex min-w-0 items-center gap-2 sm:w-60"><input class="field min-w-0 px-3 py-2 font-mono text-sm" type="${visible ? 'text' : 'password'}" value="${escapeHtml(entry.password)}" readonly aria-label="${escapeHtml(entry.name)} password"><button class="icon-button p-2" data-action="reveal" data-id="${escapeHtml(entry.id)}" aria-label="${visible ? 'Hide' : 'Show'} password">${icon('eye', 17)}</button><button class="icon-button p-2" data-action="copy-entry" data-id="${escapeHtml(entry.id)}" aria-label="Copy password">${icon('copy', 17)}</button><button class="icon-button p-2" data-action="delete" data-id="${escapeHtml(entry.id)}" aria-label="Delete login">${icon('trash', 17)}</button></div></article>`;
+    }
+
+    function bindVaultEvents() {
+      document.getElementById('lock-button').addEventListener('click', () => {
+        vaultData = {
+          entries: []
+        };
+        vaultKey = null;
+        isUnlocked = false;
+        revealIds.clear();
+        searchTerm = '';
+        renderGate();
+      });
+      document.getElementById('add-entry').addEventListener('click', () => showEntryModal());
+      document.getElementById('empty-add')?.addEventListener('click', () => showEntryModal());
+      document.getElementById('search-input').addEventListener('input', event => {
+        searchTerm = event.target.value;
+        renderVault();
+        const input = document.getElementById('search-input');
+        input.focus();
+        input.setSelectionRange(searchTerm.length, searchTerm.length);
+      });
+      document.getElementById('length-slider').addEventListener('input', event => document.getElementById('length-value').textContent = event.target.value);
+      document.getElementById('generate-button').addEventListener('click', makePassword);
+      document.getElementById('copy-generated').addEventListener('click', async () => {
+        if (!generatedPassword) return toast('Generate a password first.');
+        await copyText(generatedPassword);
+      });
+      document.getElementById('use-generated').addEventListener('click', () => showEntryModal({
+        password: generatedPassword
+      }));
+      document.querySelectorAll('[data-action]').forEach(button => button.addEventListener('click', async () => {
+        const entry = vaultData.entries.find(item => item.id === button.dataset.id);
+        if (!entry) return;
+        if (button.dataset.action === 'reveal') {
+          revealIds.has(entry.id) ? revealIds.delete(entry.id) : revealIds.add(entry.id);
+          renderVault();
+        }
+        if (button.dataset.action === 'copy-entry') await copyText(entry.password);
+        if (button.dataset.action === 'delete' && confirm(`Delete the saved login for ${entry.name}?`)) {
+          vaultData.entries = vaultData.entries.filter(item => item.id !== entry.id);
+          revealIds.delete(entry.id);
+          await saveVault();
+          renderVault();
+          toast('Login deleted.');
+        }
+      }));
+    }
+
+    function makePassword() {
+      const groups = [];
+      if (document.getElementById('use-upper').checked) groups.push('ABCDEFGHIJKLMNOPQRSTUVWXYZ');
+      if (document.getElementById('use-lower').checked) groups.push('abcdefghijklmnopqrstuvwxyz');
+      if (document.getElementById('use-numbers').checked) groups.push('0123456789');
+      if (document.getElementById('use-symbols').checked) groups.push('!@#$%^&*()-_=+[]{};:,.?');
+      const error = document.getElementById('generator-error');
+      if (!groups.length) {
+        error.classList.remove('hidden');
+        return;
+      }
+      error.classList.add('hidden');
+      const length = Number(document.getElementById('length-slider').value);
+      const pool = groups.join('');
+      const random = new Uint32Array(length);
+      crypto.getRandomValues(random);
+      const chars = groups.map(group => group[random[groups.indexOf(group)] % group.length]);
+      for (let i = chars.length; i < length; i++) chars.push(pool[random[i] % pool.length]);
+      for (let i = chars.length - 1; i > 0; i--) {
+        const index = random[i] % (i + 1);
+        [chars[i], chars[index]] = [chars[index], chars[i]];
+      }
+      generatedPassword = chars.join('');
+      document.getElementById('generated-output').value = generatedPassword;
+    }
+
+    async function copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('Copied to clipboard.');
+      } catch {
+        toast('Clipboard access is unavailable in this browser.');
+      }
+    }
+
+    function showEntryModal(prefill = {}) {
+      const root = document.getElementById('modal-root');
+      root.innerHTML = `<div class="fixed inset-0 z-40 flex items-center justify-center bg-[var(--color-overlay)] p-4" id="modal-backdrop"><section class="w-full max-w-md rounded-[calc(var(--radius)*1.2)] bg-[var(--color-surface)] p-6 shadow-2xl md:p-7" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="mb-5 flex items-start justify-between"><div><p class="mb-1 text-xs font-bold uppercase tracking-[.15em] text-[var(--color-primary)]">Keep it safe</p><h2 id="modal-title" class="text-2xl font-extrabold">Add a login</h2></div><button id="close-modal" class="icon-button p-2" aria-label="Close">${icon('close', 19)}</button></div><form id="entry-form" class="space-y-4"><label class="block text-sm font-semibold">Account name<input id="entry-name" class="field mt-2 px-4 py-3" placeholder="e.g. Email, Social, Work" required maxlength="80"></label><label class="block text-sm font-semibold">Username or email<input id="entry-username" class="field mt-2 px-4 py-3" placeholder="name@example.com" autocomplete="off" maxlength="160"></label><label class="block text-sm font-semibold">Password<div class="relative mt-2"><input id="entry-password" class="field px-4 py-3 pr-12 font-mono" type="password" placeholder="Enter or generate a password" required maxlength="512" autocomplete="new-password"><button type="button" id="modal-generate" class="icon-button absolute right-2 top-1/2 -translate-y-1/2 p-2 text-[var(--color-primary)]" aria-label="Generate password">${icon('spark', 18)}</button></div></label><label class="block text-sm font-semibold">Website <span class="font-normal muted">(optional)</span><input id="entry-url" class="field mt-2 px-4 py-3" placeholder="example.com" maxlength="300"></label><p id="entry-error" class="hidden text-sm font-medium text-[var(--color-danger)]">Please enter an account name and password.</p><div class="flex gap-3 pt-2"><button type="button" id="cancel-modal" class="flex-1 rounded-[var(--radius)] border border-[var(--color-border)] px-4 py-3 font-semibold">Cancel</button><button class="primary-button flex-1 px-4 py-3 font-bold" type="submit">Save login</button></div></form></section></div>`;
+      if (prefill.password) document.getElementById('entry-password').value = prefill.password;
+      const close = () => root.innerHTML = '';
+      document.getElementById('close-modal').addEventListener('click', close);
+      document.getElementById('cancel-modal').addEventListener('click', close);
+      document.getElementById('modal-backdrop').addEventListener('click', event => {
+        if (event.target.id === 'modal-backdrop') close();
+      });
+      document.getElementById('modal-generate').addEventListener('click', () => {
+        if (!generatedPassword) {
+          const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%&*';
+          const bytes = crypto.getRandomValues(new Uint32Array(20));
+          generatedPassword = Array.from(bytes, value => chars[value % chars.length]).join('');
+        }
+        document.getElementById('entry-password').value = generatedPassword;
+      });
+      document.getElementById('entry-form').addEventListener('submit', async event => {
+        event.preventDefault();
+        const name = document.getElementById('entry-name').value.trim();
+        const password = document.getElementById('entry-password').value;
+        if (!name || !password) return document.getElementById('entry-error').classList.remove('hidden');
+        vaultData.entries.unshift({
+          id: crypto.randomUUID(),
+          name,
+          username: document.getElementById('entry-username').value.trim(),
+          password,
+          url: document.getElementById('entry-url').value.trim(),
+          createdAt: Date.now()
+        });
+        await saveVault();
+        searchTerm = '';
+        close();
+        renderVault();
+        toast('Login saved securely.');
+      });
+      document.getElementById('entry-name').focus();
+    }
+
+    if (!window.crypto?.subtle || !window.crypto?.getRandomValues) {
+      app.innerHTML = '<main class="mx-auto max-w-xl px-6 py-24 text-center"><h1 class="text-3xl font-bold">Secure browser required</h1><p class="mt-4 muted">This password vault needs a modern browser with secure cryptography. Open the app over a secure connection and try again.</p></main>';
+    } else {
+      renderGate();
+    }
+
+  </script>
+</body>
+
+</html>

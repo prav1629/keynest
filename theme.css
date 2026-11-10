@@ -1,0 +1,46 @@
+:root {
+  --color-primary: #6d5dfc;
+  --color-primary-contrast: #ffffff;
+  --color-bg: #f5f6fb;
+  --color-surface: #ffffff;
+  --color-text: #191a2d;
+  --color-muted: #73758b;
+  --color-border: #e7e8f0;
+  --color-soft: #f0efff;
+  --color-danger: #dc4258;
+  --color-overlay: color-mix(in srgb, var(--color-text) 45%, transparent);
+  --color-primary-tint: color-mix(in srgb, var(--color-primary-contrast) 10%, transparent);
+  --color-primary-line: color-mix(in srgb, var(--color-primary-contrast) 15%, transparent);
+  --color-primary-soft-text: color-mix(in srgb, var(--color-primary-contrast) 75%, transparent);
+  --color-primary-muted-text: color-mix(in srgb, var(--color-primary-contrast) 65%, transparent);
+  --color-shadow: color-mix(in srgb, var(--color-text) 8%, transparent);
+  --font-heading: 'DM Sans', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+  --radius: 18px;
+  --radius-pill: 999px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+::selection {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
